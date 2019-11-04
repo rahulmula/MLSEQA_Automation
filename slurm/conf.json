@@ -1,0 +1,18 @@
+{
+	
+	"N1hostname": "slurm-node",
+	"N1cards" : "1",
+	"N1_autoallocation": "srun -N1 --gres=gpu:1 hostname",
+        "gpu_logpath": "/home/taccuser/slurm-automation/out_gpu.log",
+	"conf_path":"/home/taccuser/slurm-automation/conf.json",
+        "srun_command":"srun -N 1 --gres=gpu:2 hostname",
+        "autodetect_singlenode_command":"salloc -N 1 --gres=gpu:1 --begin=now --time=10",
+        "autodetect_multinode_command":"salloc -N 2 --gres=gpu:1 --begin=now --time=10",
+        "sinfo_command": "sinfo -Nl",
+        "regex":"r'^node-name:.*$'",
+        "nodepath": "/home/taccuser/slurm-automation/totalnodes.log",
+        "node_allocation_regex":"r'^salloc:.*$'",
+        "node_cancel_regex":"r'.*?Granted.*$'",
+	"allocation_log":"/home/taccuser/slurm-automation/allocation.log"
+
+}

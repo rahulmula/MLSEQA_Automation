@@ -1,0 +1,348 @@
+---
+- hosts: slurm_client
+    hosts1:10.130.166.205
+  #vars:
+  #ansible_ssh_user='ansible'
+  #ansible_ssh_pass='AH64_uh1'
+  #ansible_connection=ssh
+
+  vars_files:
+    - ./vars.yml
+
+  tasks:
+
+  - name: Run the equivalent of apt-get update as a separate step
+    apt:
+      update_cache: yes
+    become: yes
+    become_method: sudo
+
+  - name: Ensure required softwares are installed
+    apt:
+      name: "{{ pre_req_softwares }}"
+      state: present
+    become: yes
+    become_method: sudo
+
+  - name: change munge folder as insecure
+    file:
+      path: /etc/munge/
+      owner: "{{ superuser }}"
+      group: "{{ superuser }}"
+    become: yes
+    become_method: sudo
+
+
+  - name: delete newly installed munge key
+    file:
+      path: /etc/munge/munge.key
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: copy munge key file to host
+    copy:
+      src: files/etc/munge/munge-new.key
+      dest: /etc/munge/munge.key
+      owner: munge
+      group: munge
+      mode: 0400
+    become: yes
+    become_method: sudo
+
+
+  - name: enable munge service
+    service:
+          name: munge
+          enabled: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: start munge service
+    service:
+          name: munge
+          state: started
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: create storage directory
+    command: bash -lc "mkdir /storage"
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: change to storage directory and git clone
+    command: "git clone https://github.com/mknoxnv/ubuntu-slurm.git"
+    args:
+      chdir: /storage
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: install required tools
+    apt:
+      name: "{{ tools }}"
+      state: present
+    become: yes
+    become_method: sudo
+
+
+  - name: start slurm installation process
+    command: "{{ item }}"
+    args:
+      chdir: "/storage"
+    with_items:
+           
+            #- "wget https://download.schedmd.com/slurm/{{ slurm_version }}.tar.bz2"
+            #- "sudo tar xvjf {{ slurm_version }}.tar.bz2"
+       - "wget http://10.130.166.180:8081/artifactory/slurm_amd_plgn_package/amd-plugin-mike-wip-v1.tar.gz"
+       - "tar xvzf amd-plugin-mike-wip-v1.tar.gz"
+    become: yes
+    become_method: sudo
+
+
+  - name: building slurm
+    command: "{{ item }}"
+    args:
+      chdir: "/storage/{{ slurm_version }}"
+    with_items:
+       - "make clean"
+       - "./configure --prefix=/tmp/slurm-build --sysconfdir=/etc/slurm --enable-pam --with-pam_dir=/lib/x86_64-linux-gnu/security/ --without-shared-libslurm --with-rsmi"
+       - "make"
+       - "make contrib"
+       - "make install"
+    become: yes
+    become_method: sudo
+
+
+  - name: install fpm
+    command: bash -lc "gem install fpm"
+    become: yes
+    become_method: sudo
+
+
+  - name: slurm initialization
+    command: "{{ item }}"
+    args:
+      chdir: "/storage"
+    with_items:
+       - "fpm -s dir -t deb -v 1.0 -n {{ slurm_version }} --prefix=/usr -C /tmp/slurm-build ."
+       - "dpkg -i {{ slurm_version }}_1.0_amd64.deb"
+       - "mkdir /etc/slurm"
+    become: yes
+    become_method: sudo
+
+
+  - name: slurm initialization
+    command: "{{ item }}"
+    with_items:
+       - "cp /storage/ubuntu-slurm/slurm.conf /etc/slurm/"
+       - "cp /storage/ubuntu-slurm/gres.conf /etc/slurm/gres.conf"
+       - "cp /storage/ubuntu-slurm/cgroup.conf /etc/slurm/cgroup.conf"
+       - "cp /storage/ubuntu-slurm/cgroup_allowed_devices_file.conf /etc/slurm/cgroup_allowed_devices_file.conf"
+    become: yes
+    become_method: sudo
+
+  - name: create storage directory
+    command: bash -lc "mkdir -p "/var/spool/slurm/d""
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+  # - name: Add the user 'slurm'
+  #   user:
+  #     name: slurm
+  #   become: yes
+  #   become_method: sudo
+
+  - name: Ensure group "somegroup" exists
+    command: "{{ item }}"
+    with_items:
+       - "groupadd -g 992 slurm"
+       - "useradd slurm --gid 992 --uid 995"
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: copy slurmd service
+    copy:
+       src: /storage/ubuntu-slurm/slurmd.service
+       dest: /etc/systemd/system
+       remote_src: yes
+    become: yes
+    become_method: sudo
+
+  - name: Change munge folder ownership,
+    file:
+       path: /etc/munge/
+       mode: 755
+    become: yes
+    become_method: sudo
+
+  - name: enable slurmd service
+    service:
+          name: slurmd
+          enabled: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: start slurmd service
+    service:
+          name: slurmd
+          state: started
+    ignore_errors: yes
+    become: yes
+    become_method: sudo
+
+
+  - name: copy the cookie
+    shell: "slurmd -C"
+    register: nodeinfo
+    become: yes
+    become_method: sudo
+
+  - name : Copy cookie to empty file
+    shell: echo "{{ nodeinfo.stdout }}" > ./nodeinfo.properties
+    delegate_to: 127.0.0.1
+    become: yes
+    become_method: sudo
+
+  - name: Adding/setting Mastre IP
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^#ControlAddr='
+      line: 'ControlAddr=10.130.162.87'
+    become: yes
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^ControlMachine='
+      line: 'ControlMachine=slurm-master'
+    become: yes 
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^SelectType=select/cons_res'
+      line: 'SelectType=select/linear'
+    become: yes
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^SelectTypeParameters=CR_Core_Memory,CR_CORE_DEFAULT_DIST_BLOCK,CR_ONE_TASK_PER_CORE'
+      line: 'SelectTypeParameters=CR_CORE_DEFAULT_DIST_BLOCK,CR_ONE_TASK_PER_CORE'
+    become: yes
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^FastSchedule=1'
+      line: 'FastSchedule=2'
+    become: yes
+    become_method: sudo
+
+  # - name: Adding configuration
+  #   lineinfile:
+  #     dest: /etc/slurm/slurm.conf
+  #     state: present
+  #     regexp: '^PartitionName=debug Nodes=ALL Default=YES MaxTime=INFINITE State=UP'
+  #     line: 'PartitionName=debug State=UP PreemptMode=REQUEUE Priority=10000 Shared=FORCE:1'
+  #   become: yes
+  #   become_method: sudo
+
+
+  - name: copy the cookie
+    shell: "cat nodeinfo.properties"
+    register: nodeinfo
+    delegate_to: 127.0.0.1
+    become: yes
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^NodeName=linux1 Gres=gpu:8 CPUs=80 Sockets=2 CoresPerSocket=20 ThreadsPerCore=2 RealMemory=515896 State=UNKNOWN'
+      line: "{{ nodeinfo.stdout }}"
+      insertbefore: '^PartitionName=debug State=UP PreemptMode=REQUEUE Priority=10000 Shared=FORCE:1'
+    become: yes
+    become_method: sudo
+
+  - name: Make sure "Uptime" not in slurm configuration
+    lineinfile:
+      path: /etc/slurm/slurm.conf
+      state: absent
+      regexp: '^UpTime'
+    become: yes
+    become_method: sudo
+
+  - name: start slurmd service
+    service:
+          name: slurmd
+          state: started
+    become: yes
+    become_method: sudo
+
+
+
+
+
+  #  - name: install required
+  #  apt:
+  #    name: "{{ item }}"
+  #    state: present
+
+
+
+- hosts: slurm_master
+  tasks:
+
+  - name: copy the cookie
+    shell: "cat nodeinfo.properties"
+    register: nodeinfo
+    delegate_to: 127.0.0.1
+    become: yes
+    become_method: sudo
+
+  - name: Adding configuration
+    lineinfile:
+      dest: /etc/slurm/slurm.conf
+      state: present
+      regexp: '^NodeName=linux1 Gres=gpu:8 CPUs=80 Sockets=2 CoresPerSocket=20 ThreadsPerCore=2 RealMemory=515896 State=UNKNOWN'
+      line: "{{ nodeinfo.stdout }}"
+      insertbefore: '^PartitionName=debug State=UP PreemptMode=REQUEUE Priority=10000 Shared=FORCE:1'
+    become: yes
+    become_method: sudo
+  
+  - name: Make sure "Uptime" not in slurm configuration
+    lineinfile:
+      path: /etc/slurm/slurm.conf
+      state: absent
+      regexp: '^UpTime'
+    become: yes
+    become_method: sudo
+
+  - name: start slurmd service
+    service:
+          name: slurmctld
+          state: started
+    become: yes
+    become_method: sudo

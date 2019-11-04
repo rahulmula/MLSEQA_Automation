@@ -1,0 +1,73 @@
+---
+- hosts: slurm_client
+    hosts1:10.130.166.205
+  #vars:
+  #ansible_ssh_user='ansible'
+  #ansible_ssh_pass='AH64_uh1'
+  #ansible_connection=ssh
+
+  vars_files:
+    - ./vars.yml
+
+  tasks:
+
+
+          #  - name: uninstall slurm version
+          #    command: "apt-get purge --auto-remove {{ slurm_version }}"
+          #    become: yes
+          #    become_method: sudo
+
+  - name: uninstall slurm version
+    apt:
+      name: "{{ slurm_version }}"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: uninstall softwares libmunge-dev,libmunge2,munge
+    apt:
+      name: "{{ pre_req_softwares }}"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  # - name: Run the equivalent of apt-get update as a separate step
+  #   apt:
+  #     update_cache: yes
+  #   become: yes
+  #   become_method: sudo
+
+  - name: uninstall software tools like gcc,make,ruby,etc..
+    apt:
+      name: "{{ tools }}"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: Remove slurm repo "/etc/slurm"
+    file:
+      path: "/etc/slurm"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: Remove munge repo "/etc/munge"
+    file:
+      path: "/etc/munge"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: Remove storage folder "/storage"
+    file:
+      path: "/storage"
+      state: absent
+    become: yes
+    become_method: sudo
+
+  - name: Remove spoll directory folder "/var/spool/slurm/d"
+    file:
+      path: "/var/spool/slurm/d"
+      state: absent
+    become: yes
+    become_method: sudo
